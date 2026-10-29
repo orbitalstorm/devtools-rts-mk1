@@ -102,7 +102,7 @@ function drawBattlefieldTree(
   ctx.ellipse(cx + 3 * scale, cy + 4 * scale, 10 * scale, 6 * scale, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.fillStyle = "#5c4028";
+  ctx.fillStyle = kind === "TREE_CYPRESS" ? "#4a3728" : "#5c4028";
   ctx.fillRect(cx - 2.2 * scale, cy - 2 * scale, 4.4 * scale, 8 * scale);
 
   if (kind === "TREE_PINE") {
@@ -147,6 +147,28 @@ function drawBattlefieldTree(
     ctx.arc(crownX, crownY, 3 * scale, 0, Math.PI * 2);
     ctx.fillStyle = "#4ade80";
     ctx.fill();
+  } else if (kind === "TREE_CYPRESS") {
+    const tiers: ReadonlyArray<[number, number, number, string]> = [
+      [0, -1, 8.5, "#1e3f2b"],
+      [-4, 1, 6.2, "#285438"],
+      [4, 1, 6.2, "#285438"],
+      [0, -6.5, 6.5, "#346b47"],
+      [0, -10.5, 4.2, "#4ade80"],
+    ];
+    for (const [lx, ly, lr, col] of tiers) {
+      ctx.beginPath();
+      ctx.ellipse(
+        cx + lx * scale,
+        cy + ly * scale,
+        lr * scale,
+        lr * 1.15 * scale,
+        0,
+        0,
+        Math.PI * 2
+      );
+      ctx.fillStyle = col;
+      ctx.fill();
+    }
   } else {
     const lobes: ReadonlyArray<[number, number, number, string]> = [
       [-5, 1, 7.5, "#14532d"],
@@ -257,14 +279,38 @@ const STRATUM_PALETTES: Record<number, StratumPalette> = {
     cornerRadiusRatio: 0.34,
     thicknessPx: 2.2,
   },
+  [TERRAIN_KIND.SAND]: {
+    fill: "#8a6d3b",
+    lipShadow: "#5c4520",
+    lipHighlight: "#b59257",
+    cornerRadiusRatio: 0.5,
+    thicknessPx: 2.2,
+  },
+  [TERRAIN_KIND.SWAMP]: {
+    fill: "#273b2c",
+    lipShadow: "#142117",
+    lipHighlight: "#3b5942",
+    cornerRadiusRatio: 0.5,
+    thicknessPx: 2.0,
+  },
+  [TERRAIN_KIND.WATER]: {
+    fill: "#0f3a5d",
+    lipShadow: "#082038",
+    lipHighlight: "#286899",
+    cornerRadiusRatio: 0.5,
+    thicknessPx: 2.2,
+  },
 };
 
 function getTerrainVisualPriority(kind: number): number {
   const norm = normalizeBaseTerrainKind(kind);
-  if (norm === TERRAIN_KIND.CLIFF) return 5;
-  if (norm === TERRAIN_KIND.CONCRETE_SLAB) return 4;
-  if (norm === TERRAIN_KIND.GRASS) return 3;
-  if (norm === TERRAIN_KIND.DIRT) return 2;
+  if (norm === TERRAIN_KIND.CLIFF) return 8;
+  if (norm === TERRAIN_KIND.CONCRETE_SLAB) return 7;
+  if (norm === TERRAIN_KIND.GRASS) return 6;
+  if (norm === TERRAIN_KIND.SAND) return 5;
+  if (norm === TERRAIN_KIND.SWAMP) return 4;
+  if (norm === TERRAIN_KIND.DIRT) return 3;
+  if (norm === TERRAIN_KIND.WATER) return 2;
   return 1; // STONE
 }
 
@@ -628,8 +674,15 @@ export function renderMapEditorCanvas(input: EditorCanvasRenderInput): void {
       for (let x = bounds.minX; x <= bounds.maxX; x++) {
         const idx = y * doc.width + x;
         const tk = doc.terrainGrid[idx] ?? TERRAIN_KIND.GRASS;
-        if (tk === TERRAIN_KIND.CLIFF || tk === TERRAIN_KIND.SILVER_ORE) {
+        if (
+          tk === TERRAIN_KIND.CLIFF ||
+          tk === TERRAIN_KIND.WATER ||
+          tk === TERRAIN_KIND.SILVER_ORE
+        ) {
           ctx.fillStyle = "rgba(239, 68, 68, 0.34)";
+          ctx.fillRect(x * s, y * s, s, s);
+        } else if (tk === TERRAIN_KIND.SAND || tk === TERRAIN_KIND.SWAMP) {
+          ctx.fillStyle = "rgba(245, 158, 11, 0.24)";
           ctx.fillRect(x * s, y * s, s, s);
         } else if (tk === TERRAIN_KIND.CONCRETE_SLAB) {
           ctx.fillStyle = "rgba(56, 189, 248, 0.22)";

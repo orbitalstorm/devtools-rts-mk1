@@ -135,6 +135,24 @@ const TERRAIN_PALETTE_ITEMS: ReadonlyArray<{
     shortDesc: "Fondation industrielle obligatoire pour construire les bâtiments RTS.",
     swatchClass: "bg-[#525e6e] border-sky-400/60",
   },
+  {
+    kind: TERRAIN_KIND.WATER,
+    label: "Eau (Infranchissable)",
+    shortDesc: "Plan d'eau infranchissable par les unités terrestres. Ne se modifie pas quand détérioré.",
+    swatchClass: "bg-[#0f3a5d] border-sky-400/70",
+  },
+  {
+    kind: TERRAIN_KIND.SAND,
+    label: "Sable (Vitesse ×0.8)",
+    shortDesc: "Dune de sable aride ralentissant les unités terrestres (×0.8). Ne se modifie pas quand détérioré.",
+    swatchClass: "bg-[#8a6d3b] border-amber-400/60",
+  },
+  {
+    kind: TERRAIN_KIND.SWAMP,
+    label: "Marais (Asséchable ×0.8)",
+    shortDesc: "Zone marécageuse (vitesse ×0.8), non détériorable mais asséchable en terre par Soufflerie Mobile.",
+    swatchClass: "bg-[#273b2c] border-emerald-500/60",
+  },
 ];
 
 const BRUSH_SIZES: readonly number[] = [1, 2, 3, 5, 7, 9, 13];
@@ -1091,7 +1109,7 @@ export function MapEditorStudio() {
                   DEVTOOLS RTS-MK1
                 </span>
                 <Badge className="border-emerald-500/50 bg-emerald-500/20 text-emerald-300">
-                  v1.0.0
+                  v1.1.0
                 </Badge>
               </div>
               <div className="text-xs text-slate-400">
@@ -1871,6 +1889,9 @@ export function MapEditorStudio() {
                     >
                       <option value={TERRAIN_KIND.GRASS}>Fond : Herbe (Plaine)</option>
                       <option value={TERRAIN_KIND.DIRT}>Fond : Terre (Aride)</option>
+                      <option value={TERRAIN_KIND.SAND}>Fond : Sable (×0.8)</option>
+                      <option value={TERRAIN_KIND.SWAMP}>Fond : Marais (×0.8)</option>
+                      <option value={TERRAIN_KIND.WATER}>Fond : Eau (Infranchissable)</option>
                       <option value={TERRAIN_KIND.STONE}>Fond : Pierre (Socle)</option>
                       <option value={TERRAIN_KIND.CONCRETE_SLAB}>Fond : Dalle Béton</option>
                     </select>
@@ -2090,6 +2111,11 @@ export function MapEditorStudio() {
                         label: TREES_CONST.TREE_PALM.name,
                         desc: `${TREES_CONST.TREE_PALM.baseHp} PV de base`,
                       },
+                      {
+                        id: "TREE_CYPRESS",
+                        label: TREES_CONST.TREE_CYPRESS.name,
+                        desc: `${TREES_CONST.TREE_CYPRESS.baseHp} PV de base`,
+                      },
                     ] as const
                   ).map((tr) => (
                     <button
@@ -2113,7 +2139,7 @@ export function MapEditorStudio() {
                 <div className="space-y-1.5 rounded border border-slate-800 bg-slate-900/70 p-2.5">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-bold text-slate-300">
-                      Échelle botanique :
+                      Échelle botanique (Jeune pousse ↔ Adulte) :
                     </span>
                     <span className="font-mono font-bold text-emerald-300">
                       {treeScale.toFixed(2)}×
@@ -2121,7 +2147,7 @@ export function MapEditorStudio() {
                   </div>
                   <input
                     type="range"
-                    min={0.75}
+                    min={0.45}
                     max={1.35}
                     step={0.05}
                     value={treeScale}

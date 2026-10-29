@@ -62,6 +62,12 @@ export function renderEditorMinimap(input: EditorMinimapRenderInput): void {
         ctx.fillStyle = "#1e293b";
       } else if (tk === TERRAIN_KIND.STONE) {
         ctx.fillStyle = "#475569";
+      } else if (tk === TERRAIN_KIND.WATER) {
+        ctx.fillStyle = "#0284c7";
+      } else if (tk === TERRAIN_KIND.SAND) {
+        ctx.fillStyle = "#c29b58";
+      } else if (tk === TERRAIN_KIND.SWAMP) {
+        ctx.fillStyle = "#2d4a36";
       } else if (tk === TERRAIN_KIND.DIRT) {
         ctx.fillStyle = "#463525";
       } else {

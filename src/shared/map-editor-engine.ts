@@ -1,9 +1,11 @@
 import {
   BUILDINGS,
+  canPlantTreeOnTerrainKind,
   createSeededRng,
   DEFAULT_MAP_SIZE_PRESET,
   generateProceduralMap,
   generateRandomMapSeed,
+  getTerrainSpeedMultiplier,
   LEGACY_MAP_TOTAL_TILES,
   MAP_GENERATION_RULES,
   MAP_SIZE_PRESETS,
@@ -542,9 +544,10 @@ function setSingleTerrainTile(
     doc.oreGrid[idx] = 0;
   }
 
-  // Cliffs, Concrete Slabs, Ore, and Silver Ore remove trees on that tile
+  // Cliffs, Water, Concrete Slabs, Ore, and Silver Ore remove trees on that tile
   if (
     terrainKind === TERRAIN_KIND.CLIFF ||
+    terrainKind === TERRAIN_KIND.WATER ||
     terrainKind === TERRAIN_KIND.CONCRETE_SLAB ||
     terrainKind === TERRAIN_KIND.ORE ||
     terrainKind === TERRAIN_KIND.SILVER_ORE
@@ -938,7 +941,12 @@ export function applyTreeBrush(
     1
   );
 
-  const speciesList: ReadonlyArray<TreeKind> = ["TREE_PINE", "TREE_OAK", "TREE_PALM"];
+  const speciesList: ReadonlyArray<TreeKind> = [
+    "TREE_PINE",
+    "TREE_OAK",
+    "TREE_PALM",
+    "TREE_CYPRESS",
+  ];
 
   for (const center of symCenters) {
     const footprint = computeBrushFootprint(
@@ -953,22 +961,24 @@ export function applyTreeBrush(
     for (const pt of footprint) {
       if (pt.x < 1 || pt.y < 1 || pt.x >= next.width - 1 || pt.y >= next.height - 1) continue;
       const idx = pt.y * next.width + pt.x;
-      const tk = next.terrainGrid[idx];
-      // Trees can only grow on Grass or Dirt without Ore
-      if (tk !== TERRAIN_KIND.GRASS && tk !== TERRAIN_KIND.DIRT) continue;
+      const tk = next.terrainGrid[idx] ?? TERRAIN_KIND.GRASS;
+      // Trees can grow on natural ground (Grass, Dirt, Sand, Swamp) without Ore
+      if (!canPlantTreeOnTerrainKind(tk)) continue;
       if ((next.oreGrid[idx] ?? 0) > 0) continue;
 
       const rng = createSeededRng(next.seed ^ (pt.x * 83492791) ^ (pt.y * 2971215073));
       const chosenKind: TreeKind =
         options.treeKind === "MIXED"
-          ? tk === TERRAIN_KIND.DIRT
-            ? "TREE_PALM"
-            : speciesList[rng.int(0, 1)]!
+          ? tk === TERRAIN_KIND.SWAMP
+            ? "TREE_CYPRESS"
+            : tk === TERRAIN_KIND.DIRT || tk === TERRAIN_KIND.SAND
+              ? "TREE_PALM"
+              : speciesList[rng.int(0, 1)]!
           : options.treeKind;
 
       const scaleJitter = brushSize > 1 ? rng.range(-0.14, 0.16) : 0;
       const finalScale = Number(
-        Math.max(0.75, Math.min(1.4, baseScale + scaleJitter)).toFixed(2)
+        Math.max(0.4, Math.min(1.4, baseScale + scaleJitter)).toFixed(2)
       );
 
       // Replace existing tree at (pt.x, pt.y)
@@ -1205,6 +1215,7 @@ export interface TileInspectionResult {
   terrainLabel: string;
   oreAmount: number;
   passable: boolean;
+  speedMultiplier: number;
   buildableFoundation: boolean;
   tree: EditorTreePlacement | null;
   silverDeposit: EditorSilverDeposit | null;
@@ -1221,6 +1232,9 @@ export const TERRAIN_LABELS_FR: Record<number, string> = {
   [TERRAIN_KIND.ORE]: "Minerai Classique",
   [TERRAIN_KIND.CONCRETE_SLAB]: "Dalle de Béton Armé",
   [TERRAIN_KIND.SILVER_ORE]: "Rocher d'Argent 2×2",
+  [TERRAIN_KIND.WATER]: "Eau (Infranchissable)",
+  [TERRAIN_KIND.SAND]: "Sable (Vitesse ×0.8)",
+  [TERRAIN_KIND.SWAMP]: "Marais (Asséchable ×0.8)",
 };
 
 export function inspectTileAt(doc: CustomMapDocument, x: number, y: number): TileInspectionResult {
@@ -1262,9 +1276,12 @@ export function inspectTileAt(doc: CustomMapDocument, x: number, y: number): Til
 
   const passable =
     tk !== TERRAIN_KIND.CLIFF &&
+    tk !== TERRAIN_KIND.WATER &&
     tk !== TERRAIN_KIND.SILVER_ORE &&
     tree === null &&
     (placedEntity === null || placedEntity.kind === "CONCRETE_SLAB");
+
+  const speedMultiplier = passable ? getTerrainSpeedMultiplier(tk) : 0;
 
   const buildableFoundation = tk === TERRAIN_KIND.CONCRETE_SLAB && placedEntity === null;
 
@@ -1275,6 +1292,7 @@ export function inspectTileAt(doc: CustomMapDocument, x: number, y: number): Til
     terrainLabel: TERRAIN_LABELS_FR[tk] ?? "Terrain",
     oreAmount: ore,
     passable,
+    speedMultiplier,
     buildableFoundation,
     tree,
     silverDeposit,
@@ -1358,6 +1376,9 @@ export interface CustomMapAuditReport {
     concrete: number;
     ore: number;
     silver: number;
+    water: number;
+    sand: number;
+    swamp: number;
   };
   checks: MapAuditCheckItem[];
 }
@@ -1385,6 +1406,9 @@ export function auditCustomMap(
   let concreteCnt = 0;
   let oreTileCount = 0;
   let silverTileCount = 0;
+  let waterCnt = 0;
+  let sandCnt = 0;
+  let swampCnt = 0;
   let oreTotalCredits = 0;
 
   let minOreDistanceFromSpawn = Infinity;
@@ -1404,6 +1428,9 @@ export function auditCustomMap(
       else if (tk === TERRAIN_KIND.CONCRETE_SLAB) concreteCnt++;
       else if (tk === TERRAIN_KIND.ORE) oreTileCount++;
       else if (tk === TERRAIN_KIND.SILVER_ORE) silverTileCount++;
+      else if (tk === TERRAIN_KIND.WATER) waterCnt++;
+      else if (tk === TERRAIN_KIND.SAND) sandCnt++;
+      else if (tk === TERRAIN_KIND.SWAMP) swampCnt++;
 
       if (ore > 0 || tk === TERRAIN_KIND.ORE) {
         oreTotalCredits += ore;
@@ -1583,6 +1610,9 @@ export function auditCustomMap(
       concrete: pct(concreteCnt),
       ore: pct(oreTileCount),
       silver: pct(silverTileCount),
+      water: pct(waterCnt),
+      sand: pct(sandCnt),
+      swamp: pct(swampCnt),
     },
     checks,
   };

@@ -26,6 +26,7 @@ export const TreeKindSchema = z.enum([
   "TREE_PINE",
   "TREE_OAK",
   "TREE_PALM",
+  "TREE_CYPRESS",
 ]);
 
 export const UnitKindSchema = z.enum([
@@ -34,6 +35,8 @@ export const UnitKindSchema = z.enum([
   "ENGINEER",
   "CONSTRUCTOR_BOT",
   "HARVESTER",
+  "FORESTRY_TRUCK",
+  "BLOWER_TRUCK",
   "RECON_BUGGY",
   "MEDIUM_TANK",
   "ARTILLERY",
@@ -108,7 +111,7 @@ export const EditorTreePlacementSchema = z.object({
   x: z.number().int().min(0).max(511),
   y: z.number().int().min(0).max(511),
   kind: TreeKindSchema,
-  scale: z.number().min(0.6).max(1.6).default(1.0),
+  scale: z.number().min(0.3).max(1.6).default(1.0),
 });
 
 export const EditorSilverDepositSchema = z.object({
@@ -142,7 +145,7 @@ export const CustomMapDocumentSchema = z
     sizePreset: MapSizePresetChoiceSchema.default("TACTICAL_5X"),
     width: z.number().int().min(32).max(256),
     height: z.number().int().min(32).max(256),
-    terrainGrid: z.array(z.number().int().min(0).max(6)),
+    terrainGrid: z.array(z.number().int().min(0).max(9)),
     oreGrid: z.array(z.number().int().min(0).max(5000)),
     spawns: z.array(SpawnPointSpecSchema).max(4),
     trees: z.array(EditorTreePlacementSchema),

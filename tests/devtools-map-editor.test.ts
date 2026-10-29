@@ -257,4 +257,92 @@ describe("DevTools RTS-MK1 v1.0.0 — Tactical Map Editor Engine & Persistence",
       expect(content).not.toMatch(/\bstyle=\{\{/);
     }
   });
+
+  it("6. Supports WATER (impassable), SAND (x0.8 speed), SWAMP (x0.8 speed, dryable), TREE_CYPRESS, FORESTRY_TRUCK, and BLOWER_TRUCK", () => {
+    let doc = createBlankCustomMap({
+      sizePreset: "LEGACY_1X",
+      withDefaultSpawns: false,
+    });
+
+    // Paint WATER at (20, 20), SAND at (25, 20), SWAMP at (30, 20)
+    doc = applyTerrainBrush(doc, {
+      x: 20,
+      y: 20,
+      terrainKind: TERRAIN_KIND.WATER,
+      brushSize: 3,
+      brushShape: "CIRCLE",
+    });
+    doc = applyTerrainBrush(doc, {
+      x: 25,
+      y: 20,
+      terrainKind: TERRAIN_KIND.SAND,
+      brushSize: 3,
+      brushShape: "CIRCLE",
+    });
+    doc = applyTerrainBrush(doc, {
+      x: 30,
+      y: 20,
+      terrainKind: TERRAIN_KIND.SWAMP,
+      brushSize: 3,
+      brushShape: "CIRCLE",
+    });
+
+    const waterInsp = inspectTileAt(doc, 20, 20);
+    expect(waterInsp.terrainKind).toBe(TERRAIN_KIND.WATER);
+    expect(waterInsp.passable).toBe(false);
+    expect(waterInsp.speedMultiplier).toBe(0);
+
+    const sandInsp = inspectTileAt(doc, 25, 20);
+    expect(sandInsp.terrainKind).toBe(TERRAIN_KIND.SAND);
+    expect(sandInsp.passable).toBe(true);
+    expect(sandInsp.speedMultiplier).toBe(0.8);
+
+    const swampInsp = inspectTileAt(doc, 30, 20);
+    expect(swampInsp.terrainKind).toBe(TERRAIN_KIND.SWAMP);
+    expect(swampInsp.passable).toBe(true);
+    expect(swampInsp.speedMultiplier).toBe(0.8);
+
+    // Plant TREE_CYPRESS on SWAMP and TREE_PALM on SAND
+    doc = applyTreeBrush(doc, {
+      x: 30,
+      y: 20,
+      treeKind: "TREE_CYPRESS",
+      scale: 0.95,
+      brushSize: 1,
+    });
+    doc = applyTreeBrush(doc, {
+      x: 25,
+      y: 20,
+      treeKind: "TREE_PALM",
+      scale: 1.0,
+      brushSize: 1,
+    });
+    expect(doc.trees.some((t) => t.x === 30 && t.y === 20 && t.kind === "TREE_CYPRESS")).toBe(true);
+    expect(doc.trees.some((t) => t.x === 25 && t.y === 20 && t.kind === "TREE_PALM")).toBe(true);
+
+    // Place FORESTRY_TRUCK and BLOWER_TRUCK pre-built units
+    doc = placePrebuiltEntity(doc, {
+      x: 40,
+      y: 40,
+      ownerSlot: 0,
+      faction: "GDI",
+      entityType: "UNIT",
+      kind: "FORESTRY_TRUCK",
+    });
+    doc = placePrebuiltEntity(doc, {
+      x: 42,
+      y: 40,
+      ownerSlot: 0,
+      faction: "GDI",
+      entityType: "UNIT",
+      kind: "BLOWER_TRUCK",
+    });
+    expect(doc.placedEntities.some((e) => e.kind === "FORESTRY_TRUCK")).toBe(true);
+    expect(doc.placedEntities.some((e) => e.kind === "BLOWER_TRUCK")).toBe(true);
+
+    const audit = auditCustomMap(doc);
+    expect(audit.terrainBreakdownPct.water).toBeGreaterThan(0);
+    expect(audit.terrainBreakdownPct.sand).toBeGreaterThan(0);
+    expect(audit.terrainBreakdownPct.swamp).toBeGreaterThan(0);
+  });
 });
