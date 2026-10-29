@@ -32,12 +32,15 @@ import {
   upsertCustomMap,
 } from "../src/server/db";
 import {
+  MORPHOLOGY_LABELS,
+  VECTOR_ANIMATION_MODES,
   VECTOR_ASSET_ELEMENTS,
   getActiveBuildingVariant,
   getActiveTerrainVariantByNumericKind,
   getActiveTreeVariant,
   getActiveUnitVariant,
   getActiveVectorConfigSignature,
+  resolveVariantMorphology,
 } from "../src/shared/schemas/vector-variants";
 import {
   GET as getVectorVariantsApi,
@@ -412,7 +415,13 @@ describe("DevTools RTS-MK1 v1.0.0 — Tactical Map Editor Engine & Persistence",
     expect(getActiveTreeVariant("TREE_PINE").versionNumber).toBe(3);
     expect(getActiveVectorConfigSignature()).not.toBe(sigBefore);
 
-    // 4. Ask Leonardo to propose new versions repeatedly (V5, V6, then V7, V8) without reusing version numbers
+    // 4. Ask Leonardo to propose new versions repeatedly (V5, V6, then V7, V8...) without reusing version numbers
+    const baseMaxVer = Math.max(
+      0,
+      ...(saveRes.state.catalog["BUILDING:CONSTRUCTION_YARD"] ?? []).map(
+        (v) => v.versionNumber
+      )
+    );
     const firstGen = mutateVectorVariantsState({
       action: "PROPOSE_NEW_VARIANTS",
       targetScope: "ASSET",
@@ -423,8 +432,8 @@ describe("DevTools RTS-MK1 v1.0.0 — Tactical Map Editor Engine & Persistence",
       autoSelectNewest: true,
     });
     expect(firstGen.newlyCreated.length).toBe(2);
-    expect(firstGen.newlyCreated[0]?.versionNumber).toBe(5);
-    expect(firstGen.newlyCreated[1]?.versionNumber).toBe(6);
+    expect(firstGen.newlyCreated[0]?.versionNumber).toBe(baseMaxVer + 1);
+    expect(firstGen.newlyCreated[1]?.versionNumber).toBe(baseMaxVer + 2);
     expect(firstGen.state.activeVariants["BUILDING:CONSTRUCTION_YARD"]).toBe(
       firstGen.newlyCreated[1]?.variantId
     );
@@ -439,8 +448,8 @@ describe("DevTools RTS-MK1 v1.0.0 — Tactical Map Editor Engine & Persistence",
       autoSelectNewest: true,
     });
     expect(secondGen.newlyCreated.length).toBe(2);
-    expect(secondGen.newlyCreated[0]?.versionNumber).toBe(7);
-    expect(secondGen.newlyCreated[1]?.versionNumber).toBe(8);
+    expect(secondGen.newlyCreated[0]?.versionNumber).toBe(baseMaxVer + 3);
+    expect(secondGen.newlyCreated[1]?.versionNumber).toBe(baseMaxVer + 4);
     const v8Id = secondGen.newlyCreated[1]!.variantId;
     expect(secondGen.state.activeVariants["BUILDING:CONSTRUCTION_YARD"]).toBe(
       v8Id
@@ -516,5 +525,60 @@ describe("DevTools RTS-MK1 v1.0.0 — Tactical Map Editor Engine & Persistence",
       action: "RESET_TO_DEFAULT",
       targetScope: "ALL",
     });
+  });
+
+  it("8. v1.3.0 (ORB-23) — Distinct structural morphologies (V1..V6+) and 60 FPS live animation preview (IDLE, MOVE, ATTACK, SPECIAL)", () => {
+    const state = getVectorVariantsState();
+
+    // 1. Verify that every element's V1, V2, V3, V4 variants resolve to 4 genuinely distinct structural morphologies
+    for (const el of VECTOR_ASSET_ELEMENTS) {
+      const variants = state.catalog[el.assetKey] ?? [];
+      expect(variants.length).toBeGreaterThanOrEqual(4);
+      const m1 = resolveVariantMorphology(variants[0]!);
+      const m2 = resolveVariantMorphology(variants[1]!);
+      const m3 = resolveVariantMorphology(variants[2]!);
+      const m4 = resolveVariantMorphology(variants[3]!);
+
+      expect(m1).toBe("CLASSIC_MK1");
+      expect(m2).toBe("BASTION_CATAPHRACT");
+      expect(m3).toBe("TOKAMAK_MAGLEV");
+      expect(m4).toBe("STEALTH_DELTA_DRONE");
+
+      // All 4 built-in variants have distinct morphologies and human-readable labels
+      const uniqueMorphs = new Set([m1, m2, m3, m4]);
+      expect(uniqueMorphs.size).toBe(4);
+      for (const m of uniqueMorphs) {
+        expect(MORPHOLOGY_LABELS[m].length).toBeGreaterThan(8);
+      }
+    }
+
+    // 2. Verify all 4 animation modes (IDLE, MOVE, ATTACK, SPECIAL) are registered
+    expect(VECTOR_ANIMATION_MODES.map((m) => m.id)).toEqual([
+      "IDLE",
+      "MOVE",
+      "ATTACK",
+      "SPECIAL",
+    ]);
+
+    // 3. Verify LeonardoVectorStudio UI exposes animation preview controls & live comparator canvas
+    const vectorStudioSrc = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        "../src/components/devtools/leonardo-vector-studio.tsx"
+      ),
+      "utf8"
+    );
+    expect(vectorStudioSrc).toContain('data-testid="animation-preview-controls"');
+    expect(vectorStudioSrc).toContain('data-testid="anim-play-pause-button"');
+    expect(vectorStudioSrc).toContain('data-testid={`anim-mode-${m.id}`}');
+    expect(vectorStudioSrc).toContain('data-testid="anim-phase-slider"');
+    expect(vectorStudioSrc).toContain('data-testid="anim-speed-select"');
+    expect(vectorStudioSrc).toContain('data-testid="toggle-animate-all-cards"');
+    expect(vectorStudioSrc).toContain(
+      'data-testid="live-animation-stage-canvas"'
+    );
+    expect(vectorStudioSrc).toContain(
+      'data-testid={`morphology-badge-${proposal.variantId}`}'
+    );
   });
 });

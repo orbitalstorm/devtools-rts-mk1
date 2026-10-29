@@ -3,19 +3,25 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
+  Activity,
   ArrowLeft,
   Check,
   CheckCircle2,
   Compass,
   ExternalLink,
+  Flame,
+  Footprints,
   Layers,
   Palette,
+  Pause,
+  Play,
   RefreshCw,
   RotateCcw,
   Save,
   Search,
   Sparkles,
   Wand2,
+  Zap,
 } from "lucide-react";
 import {
   TERRAIN_KIND,
@@ -25,11 +31,15 @@ import {
   type UnitKind,
 } from "../../shared/constants";
 import {
+  MORPHOLOGY_LABELS,
+  VECTOR_ANIMATION_MODES,
   VECTOR_ASSET_ELEMENTS,
   createInitialVectorVariantsState,
+  resolveVariantMorphology,
   setActiveVectorVariantConfig,
   summarizeVectorVariantsState,
   type StyleArchetype,
+  type VectorAnimationMode,
   type VectorAssetCategory,
   type VectorAssetElementDescriptor,
   type VectorVariantProposal,
@@ -42,6 +52,7 @@ import {
   drawLeonardoTree,
   drawLeonardoUnitBody,
   drawLeonardoUnitTurret,
+  type VectorAnimationParams,
 } from "../../renderer/generator/leonardo-vector-art";
 import {
   FactionVectorEmblem,
@@ -65,14 +76,14 @@ const STYLE_ARCHETYPE_OPTIONS: ReadonlyArray<{
   id: "AUTO" | StyleArchetype;
   label: string;
 }> = [
-  { id: "AUTO", label: "Cycle Créatif Libre (Léonard)" },
-  { id: "HEAVY_BASTION", label: "Bastion Blindé Lourd & Rivets" },
-  { id: "APEX_PLASMA", label: "Prototype Apex Plasma & Bobines" },
-  { id: "TACTICAL_VANGUARD", label: "Avant-Garde Tactique & Radar" },
-  { id: "BRUTALIST_BUNKER", label: "Bunker Brutaliste Renforcé" },
-  { id: "CYBER_STEALTH", label: "Furtif Cybernétique Angulaire" },
-  { id: "DESERT_STORM", label: "Tempête du Désert & Camouflage" },
-  { id: "MILITARY_MK1", label: "Standard Militaire Revu" },
+  { id: "AUTO", label: "Cycle Créatif Libre (Morphologies Distinctes)" },
+  { id: "HEAVY_BASTION", label: "Citadelle Octogonale & Quad-Chenilles Blindées" },
+  { id: "APEX_PLASMA", label: "Anneau Tokamak & Lévitation Magnétique" },
+  { id: "CYBER_STEALTH", label: "Aile Delta Furtive F-117 & Drone Autonome" },
+  { id: "TACTICAL_VANGUARD", label: "Catamaran Mécanique & Marcheur Bipode/Quadrupode" },
+  { id: "BRUTALIST_BUNKER", label: "Ziggourat Hex-Triade & Essaim Modulaire" },
+  { id: "DESERT_STORM", label: "Tempête du Désert & Blindage Réactif" },
+  { id: "MILITARY_MK1", label: "Doctrine Classique Revisité" },
 ];
 
 const FACTION_CHOICES: ReadonlyArray<{
@@ -98,6 +109,7 @@ interface VariantPreviewCanvasProps {
   proposal: VectorVariantProposal;
   faction: FactionId;
   rotationStep: number;
+  animState: VectorAnimationParams;
 }
 
 function VariantPreviewCanvas({
@@ -105,6 +117,7 @@ function VariantPreviewCanvas({
   proposal,
   faction,
   rotationStep,
+  animState,
 }: VariantPreviewCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -118,26 +131,35 @@ function VariantPreviewCanvas({
     const h = canvas.height;
     ctx.clearRect(0, 0, w, h);
 
-    // Subtle dark blueprint grid background
+    // Subtle dark blueprint grid background (scrolls during MOVE mode for units!)
     ctx.fillStyle = "#090e17";
     ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = "rgba(148, 163, 184, 0.08)";
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.09)";
     ctx.lineWidth = 1;
-    for (let gx = 16; gx < w; gx += 16) {
+
+    const angleIndex = rotationStep % 16;
+    const angleRad = (angleIndex / 16) * Math.PI * 2;
+    const isMovingUnit =
+      descriptor.category === "UNIT" && animState.mode === "MOVE";
+    const gridScrollX = isMovingUnit
+      ? Math.sin(angleRad) * ((animState.phase * 32) % 16)
+      : 0;
+    const gridScrollY = isMovingUnit
+      ? -Math.cos(angleRad) * ((animState.phase * 32) % 16)
+      : 0;
+
+    for (let gx = (16 + gridScrollX) % 16; gx < w; gx += 16) {
       ctx.beginPath();
       ctx.moveTo(gx, 0);
       ctx.lineTo(gx, h);
       ctx.stroke();
     }
-    for (let gy = 16; gy < h; gy += 16) {
+    for (let gy = (16 + gridScrollY) % 16; gy < h; gy += 16) {
       ctx.beginPath();
       ctx.moveTo(0, gy);
       ctx.lineTo(w, gy);
       ctx.stroke();
     }
-
-    const angleIndex = rotationStep % 16;
-    const angleRad = (angleIndex / 16) * Math.PI * 2;
 
     if (descriptor.category === "BUILDING") {
       const bKind = descriptor.elementCode as BuildingKind;
@@ -155,16 +177,22 @@ function VariantPreviewCanvas({
 
       ctx.save();
       ctx.translate(ox, oy);
-      drawLeonardoBuilding(ctx, faction, bKind, drawW, drawH, proposal);
+      drawLeonardoBuilding(ctx, faction, bKind, drawW, drawH, proposal, animState);
       if (bKind === "GUARD_TOWER" || bKind === "SAM_SITE") {
+        const aimSweep =
+          animState.mode === "ATTACK"
+            ? Math.round(Math.sin(animState.phase * Math.PI * 2) * 2)
+            : 0;
+        const tAngle = (angleIndex + aimSweep + 16) % 16;
         drawLeonardoBuildingTurret(
           ctx,
           faction,
           bKind,
           drawW,
           drawH,
-          angleIndex,
-          proposal
+          tAngle,
+          proposal,
+          animState
         );
       }
       ctx.restore();
@@ -175,17 +203,35 @@ function VariantPreviewCanvas({
       const uKind = descriptor.elementCode as UnitKind;
       const cellSize = 96;
 
-      // Subtle tactical ground ring
+      // Subtle tactical ground ring with mode-reactive pulse
       ctx.save();
-      ctx.strokeStyle = "rgba(56, 189, 248, 0.22)";
-      ctx.lineWidth = 1.2;
+      ctx.strokeStyle =
+        animState.mode === "ATTACK"
+          ? "rgba(239, 68, 68, 0.35)"
+          : animState.mode === "MOVE"
+            ? "rgba(56, 189, 248, 0.35)"
+            : "rgba(56, 189, 248, 0.22)";
+      ctx.lineWidth = 1.3;
       ctx.beginPath();
-      ctx.ellipse(w / 2, h / 2 + 8, 38, 22, 0, 0, Math.PI * 2);
+      ctx.ellipse(
+        w / 2,
+        h / 2 + 8,
+        38 + Math.sin(animState.phase * Math.PI * 2) * 2,
+        22 + Math.sin(animState.phase * Math.PI * 2) * 1.2,
+        0,
+        0,
+        Math.PI * 2
+      );
       ctx.stroke();
       ctx.restore();
 
+      const moveBobY =
+        animState.mode === "MOVE"
+          ? Math.sin(animState.phase * Math.PI * 4) * 1.8
+          : 0;
+
       ctx.save();
-      ctx.translate(w / 2, h / 2);
+      ctx.translate(w / 2, h / 2 + moveBobY);
       ctx.rotate(angleRad);
       drawLeonardoUnitBody(
         ctx,
@@ -193,15 +239,20 @@ function VariantPreviewCanvas({
         uKind,
         cellSize,
         angleIndex,
-        proposal
+        proposal,
+        animState
       );
       ctx.restore();
 
       if (hasTurretUnit(uKind)) {
+        const turretSweep =
+          animState.mode === "ATTACK"
+            ? Math.sin(animState.phase * Math.PI * 2) * 0.28
+            : 0;
         const turretAngleIdx = (angleIndex + 1) % 16;
-        const turretRad = (turretAngleIdx / 16) * Math.PI * 2;
+        const turretRad = (turretAngleIdx / 16) * Math.PI * 2 + turretSweep;
         ctx.save();
-        ctx.translate(w / 2, h / 2);
+        ctx.translate(w / 2, h / 2 + moveBobY);
         ctx.rotate(turretRad);
         drawLeonardoUnitTurret(
           ctx,
@@ -209,7 +260,8 @@ function VariantPreviewCanvas({
           uKind,
           cellSize,
           turretAngleIdx,
-          proposal
+          proposal,
+          animState
         );
         ctx.restore();
       }
@@ -230,7 +282,7 @@ function VariantPreviewCanvas({
         for (let gx = 0; gx < gridCols; gx += 1) {
           ctx.save();
           ctx.translate(startX + gx * tileSize, startY + gy * tileSize);
-          drawLeonardoTerrainTile(ctx, tKind, tileSize, proposal);
+          drawLeonardoTerrainTile(ctx, tKind, tileSize, proposal, animState);
           ctx.strokeStyle = "rgba(15, 23, 42, 0.45)";
           ctx.lineWidth = 1;
           ctx.strokeRect(0, 0, tileSize, tileSize);
@@ -250,11 +302,42 @@ function VariantPreviewCanvas({
       ctx.lineWidth = 1.2;
       ctx.stroke();
 
-      drawLeonardoTree(ctx, treeKind, w / 2 - 54, h / 2 - 16, 36, 0.9, 0, proposal);
-      drawLeonardoTree(ctx, treeKind, w / 2 + 18, h / 2 - 14, 36, 1.0, 0, proposal);
-      drawLeonardoTree(ctx, treeKind, w / 2 - 18, h / 2 - 10, 36, 1.18, 0, proposal);
+      const nowMs = animState.timeMs ?? animState.phase * 3000;
+      drawLeonardoTree(
+        ctx,
+        treeKind,
+        w / 2 - 54,
+        h / 2 - 16,
+        36,
+        0.9,
+        nowMs,
+        proposal,
+        animState
+      );
+      drawLeonardoTree(
+        ctx,
+        treeKind,
+        w / 2 + 18,
+        h / 2 - 14,
+        36,
+        1.0,
+        nowMs + 400,
+        proposal,
+        animState
+      );
+      drawLeonardoTree(
+        ctx,
+        treeKind,
+        w / 2 - 18,
+        h / 2 - 10,
+        36,
+        1.18,
+        nowMs + 800,
+        proposal,
+        animState
+      );
     }
-  }, [descriptor, proposal, faction, rotationStep]);
+  }, [descriptor, proposal, faction, rotationStep, animState]);
 
   return (
     <canvas
@@ -266,12 +349,222 @@ function VariantPreviewCanvas({
   );
 }
 
+interface LiveAnimationStageCanvasProps {
+  descriptor: VectorAssetElementDescriptor;
+  baseProposal: VectorVariantProposal;
+  selectedProposal: VectorVariantProposal;
+  faction: FactionId;
+  rotationStep: number;
+  animState: VectorAnimationParams;
+}
+
+function LiveAnimationStageCanvas({
+  descriptor,
+  baseProposal,
+  selectedProposal,
+  faction,
+  rotationStep,
+  animState,
+}: LiveAnimationStageCanvasProps) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    // Split comparison stage: Left = V1 Classic, Right = Selected Variant
+    ctx.fillStyle = "#070b12";
+    ctx.fillRect(0, 0, w, h);
+
+    const halfW = w / 2;
+
+    const renderHalf = (
+      proposal: VectorVariantProposal,
+      offsetX: number,
+      label: string
+    ) => {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(offsetX, 0, halfW, h);
+      ctx.clip();
+      ctx.translate(offsetX, 0);
+
+      // Subtle tactical grid
+      ctx.strokeStyle = "rgba(56, 189, 248, 0.08)";
+      ctx.lineWidth = 1;
+      for (let gx = 16; gx < halfW; gx += 16) {
+        ctx.beginPath();
+        ctx.moveTo(gx, 0);
+        ctx.lineTo(gx, h);
+        ctx.stroke();
+      }
+      for (let gy = 16; gy < h; gy += 16) {
+        ctx.beginPath();
+        ctx.moveTo(0, gy);
+        ctx.lineTo(halfW, gy);
+        ctx.stroke();
+      }
+
+      const angleIndex = rotationStep % 16;
+      const angleRad = (angleIndex / 16) * Math.PI * 2;
+
+      if (descriptor.category === "BUILDING") {
+        const bKind = descriptor.elementCode as BuildingKind;
+        const pad = 18;
+        const availW = halfW - pad * 2;
+        const availH = h - 32;
+        const tileScale = Math.min(
+          availW / Math.max(1, descriptor.footprintW),
+          availH / Math.max(1, descriptor.footprintH)
+        );
+        const drawW = Math.round(descriptor.footprintW * tileScale);
+        const drawH = Math.round(descriptor.footprintH * tileScale);
+        const ox = Math.round((halfW - drawW) / 2);
+        const oy = Math.round((h - drawH) / 2) + 6;
+        ctx.save();
+        ctx.translate(ox, oy);
+        drawLeonardoBuilding(
+          ctx,
+          faction,
+          bKind,
+          drawW,
+          drawH,
+          proposal,
+          animState
+        );
+        if (bKind === "GUARD_TOWER" || bKind === "SAM_SITE") {
+          drawLeonardoBuildingTurret(
+            ctx,
+            faction,
+            bKind,
+            drawW,
+            drawH,
+            angleIndex,
+            proposal,
+            animState
+          );
+        }
+        ctx.restore();
+      } else if (descriptor.category === "UNIT") {
+        const uKind = descriptor.elementCode as UnitKind;
+        const cellSize = 88;
+        ctx.save();
+        ctx.translate(halfW / 2, h / 2 + 6);
+        ctx.rotate(angleRad);
+        drawLeonardoUnitBody(
+          ctx,
+          faction,
+          uKind,
+          cellSize,
+          angleIndex,
+          proposal,
+          animState
+        );
+        ctx.restore();
+
+        if (hasTurretUnit(uKind)) {
+          const tIdx = (angleIndex + 1) % 16;
+          const tRad = (tIdx / 16) * Math.PI * 2;
+          ctx.save();
+          ctx.translate(halfW / 2, h / 2 + 6);
+          ctx.rotate(tRad);
+          drawLeonardoUnitTurret(
+            ctx,
+            faction,
+            uKind,
+            cellSize,
+            tIdx,
+            proposal,
+            animState
+          );
+          ctx.restore();
+        }
+      } else if (descriptor.category === "TERRAIN") {
+        const tKind = descriptor.terrainNumericCode ?? TERRAIN_KIND.GRASS;
+        const tileSize = 46;
+        const ox = Math.round((halfW - tileSize * 2) / 2);
+        const oy = Math.round((h - tileSize * 2) / 2) + 6;
+        for (let gy = 0; gy < 2; gy++) {
+          for (let gx = 0; gx < 2; gx++) {
+            ctx.save();
+            ctx.translate(ox + gx * tileSize, oy + gy * tileSize);
+            drawLeonardoTerrainTile(ctx, tKind, tileSize, proposal, animState);
+            ctx.restore();
+          }
+        }
+      } else if (descriptor.category === "TREE") {
+        const treeKind = descriptor.elementCode as TreeKind;
+        const nowMs = animState.timeMs ?? animState.phase * 3000;
+        drawLeonardoTree(
+          ctx,
+          treeKind,
+          halfW / 2 - 22,
+          h / 2 - 14,
+          44,
+          1.15,
+          nowMs,
+          proposal,
+          animState
+        );
+      }
+
+      // Header label inside stage half
+      ctx.fillStyle = "rgba(9, 13, 22, 0.85)";
+      ctx.fillRect(4, 4, halfW - 8, 18);
+      ctx.fillStyle = "#e2e8f0";
+      ctx.font = "bold 10px sans-serif";
+      ctx.fillText(label, 8, 16);
+
+      ctx.restore();
+    };
+
+    renderHalf(baseProposal, 0, "V1 Standard (Référence)");
+    renderHalf(
+      selectedProposal,
+      halfW,
+      `V${selectedProposal.versionNumber} Sélectionné`
+    );
+
+    // Center divider line
+    ctx.strokeStyle = "#f59e0b";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(halfW, 0);
+    ctx.lineTo(halfW, h);
+    ctx.stroke();
+  }, [
+    descriptor,
+    baseProposal,
+    selectedProposal,
+    faction,
+    rotationStep,
+    animState,
+  ]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      data-testid="live-animation-stage-canvas"
+      width={320}
+      height={152}
+      className="h-38 w-full rounded border border-amber-500/40 bg-slate-950 shadow-inner"
+    />
+  );
+}
+
 interface LiveDioramaCanvasProps {
   selectedDescriptor: VectorAssetElementDescriptor;
   catalog: Record<string, VectorVariantProposal[]>;
   stagedSelections: Record<string, string>;
   faction: FactionId;
   rotationStep: number;
+  animState: VectorAnimationParams;
 }
 
 function LiveDioramaCanvas({
@@ -280,6 +573,7 @@ function LiveDioramaCanvas({
   stagedSelections,
   faction,
   rotationStep,
+  animState,
 }: LiveDioramaCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -347,18 +641,49 @@ function LiveDioramaCanvas({
 
         ctx.save();
         ctx.translate(gx * tileSize, gy * tileSize);
-        drawLeonardoTerrainTile(ctx, tKind, tileSize, tVariant);
+        drawLeonardoTerrainTile(ctx, tKind, tileSize, tVariant, animState);
         ctx.restore();
       }
     }
 
     // 2. Render surrounding trees using active/staged tree variants
+    const nowMs = animState.timeMs ?? animState.phase * 3000;
     const pineVariant = getVariantFor("TREE:TREE_PINE");
     const palmVariant = getVariantFor("TREE:TREE_PALM");
     const oakVariant = getVariantFor("TREE:TREE_OAK");
-    drawLeonardoTree(ctx, "TREE_PINE", 8, 8, 32, 0.95, 0, pineVariant);
-    drawLeonardoTree(ctx, "TREE_PALM", w - 42, 8, 32, 0.95, 0, palmVariant);
-    drawLeonardoTree(ctx, "TREE_OAK", 10, h - 44, 32, 0.95, 0, oakVariant);
+    drawLeonardoTree(
+      ctx,
+      "TREE_PINE",
+      8,
+      8,
+      32,
+      0.95,
+      nowMs,
+      pineVariant,
+      animState
+    );
+    drawLeonardoTree(
+      ctx,
+      "TREE_PALM",
+      w - 42,
+      8,
+      32,
+      0.95,
+      nowMs + 300,
+      palmVariant,
+      animState
+    );
+    drawLeonardoTree(
+      ctx,
+      "TREE_OAK",
+      10,
+      h - 44,
+      32,
+      0.95,
+      nowMs + 600,
+      oakVariant,
+      animState
+    );
 
     // 3. Render focal element in the center of the diorama
     const activeProposal = getVariantFor(selectedDescriptor.assetKey);
@@ -374,7 +699,15 @@ function LiveDioramaCanvas({
       const oy = Math.round((h - bh) / 2);
       ctx.save();
       ctx.translate(ox, oy);
-      drawLeonardoBuilding(ctx, faction, bKind, bw, bh, activeProposal);
+      drawLeonardoBuilding(
+        ctx,
+        faction,
+        bKind,
+        bw,
+        bh,
+        activeProposal,
+        animState
+      );
       if (bKind === "GUARD_TOWER" || bKind === "SAM_SITE") {
         drawLeonardoBuildingTurret(
           ctx,
@@ -383,7 +716,8 @@ function LiveDioramaCanvas({
           bw,
           bh,
           angleIndex,
-          activeProposal
+          activeProposal,
+          animState
         );
       }
       ctx.restore();
@@ -399,7 +733,8 @@ function LiveDioramaCanvas({
         uKind,
         cellSize,
         angleIndex,
-        activeProposal
+        activeProposal,
+        animState
       );
       ctx.restore();
       if (hasTurretUnit(uKind)) {
@@ -414,25 +749,63 @@ function LiveDioramaCanvas({
           uKind,
           cellSize,
           tIdx,
-          activeProposal
+          activeProposal,
+          animState
         );
         ctx.restore();
       }
     } else if (selectedDescriptor.category === "TREE") {
       const treeKind = selectedDescriptor.elementCode as TreeKind;
-      drawLeonardoTree(ctx, treeKind, w / 2 - 52, h / 2 - 18, 36, 1.0, 0, activeProposal);
-      drawLeonardoTree(ctx, treeKind, w / 2 + 16, h / 2 - 16, 36, 1.05, 0, activeProposal);
-      drawLeonardoTree(ctx, treeKind, w / 2 - 18, h / 2 - 10, 36, 1.2, 0, activeProposal);
+      drawLeonardoTree(
+        ctx,
+        treeKind,
+        w / 2 - 52,
+        h / 2 - 18,
+        36,
+        1.0,
+        nowMs,
+        activeProposal,
+        animState
+      );
+      drawLeonardoTree(
+        ctx,
+        treeKind,
+        w / 2 + 16,
+        h / 2 - 16,
+        36,
+        1.05,
+        nowMs + 400,
+        activeProposal,
+        animState
+      );
+      drawLeonardoTree(
+        ctx,
+        treeKind,
+        w / 2 - 18,
+        h / 2 - 10,
+        36,
+        1.2,
+        nowMs + 800,
+        activeProposal,
+        animState
+      );
     }
-  }, [selectedDescriptor, catalog, stagedSelections, faction, rotationStep]);
+  }, [
+    selectedDescriptor,
+    catalog,
+    stagedSelections,
+    faction,
+    rotationStep,
+    animState,
+  ]);
 
   return (
     <canvas
       ref={canvasRef}
       data-testid="live-diorama-preview"
       width={320}
-      height={208}
-      className="h-52 w-full rounded border border-slate-700 bg-slate-950 shadow-inner"
+      height={196}
+      className="h-48 w-full rounded border border-slate-700 bg-slate-950 shadow-inner"
     />
   );
 }
@@ -471,6 +844,13 @@ export function LeonardoVectorStudio({
   const [autoRotate, setAutoRotate] = useState<boolean>(false);
   const [sortNewestFirst, setSortNewestFirst] = useState<boolean>(false);
 
+  // Live Animation Preview State
+  const [isAnimPlaying, setIsAnimPlaying] = useState<boolean>(true);
+  const [animMode, setAnimMode] = useState<VectorAnimationMode>("IDLE");
+  const [animSpeed, setAnimSpeed] = useState<number>(1);
+  const [animPhase, setAnimPhase] = useState<number>(0);
+  const [animateAllCards, setAnimateAllCards] = useState<boolean>(true);
+
   // Ask Leonardo form state
   const [commissionScope, setCommissionScope] = useState<
     "ASSET" | "CATEGORY" | "ALL"
@@ -487,7 +867,7 @@ export function LeonardoVectorStudio({
     text: string;
     tone: "emerald" | "amber" | "red";
   }>({
-    text: "Atelier Vectoriel de Léonard prêt. Choisissez une variante ou demandez de nouvelles propositions.",
+    text: "Atelier Vectoriel de Léonard prêt : morphologies distinctes & prévisualisation d'animations temps réel actives.",
     tone: "emerald",
   });
 
@@ -537,6 +917,25 @@ export function LeonardoVectorStudio({
     void fetchVectorState();
   }, [fetchVectorState]);
 
+  // Real-time 60 FPS animation loop when playing
+  useEffect(() => {
+    if (!isAnimPlaying) return;
+    let rafId = 0;
+    let lastTime = performance.now();
+
+    const step = (now: number) => {
+      const dt = Math.min(100, now - lastTime);
+      lastTime = now;
+      // Full animation cycle every 2400ms at 1x speed
+      const deltaPhase = (dt / 2400) * animSpeed;
+      setAnimPhase((prev) => (prev + deltaPhase) % 1);
+      rafId = window.requestAnimationFrame(step);
+    };
+
+    rafId = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(rafId);
+  }, [isAnimPlaying, animSpeed]);
+
   // Optional turntable rotation timer
   useEffect(() => {
     if (!autoRotate) return;
@@ -545,6 +944,24 @@ export function LeonardoVectorStudio({
     }, 320);
     return () => window.clearInterval(id);
   }, [autoRotate]);
+
+  const liveAnimState = useMemo<VectorAnimationParams>(
+    () => ({
+      mode: animMode,
+      phase: animPhase,
+      timeMs: animPhase * 3000,
+    }),
+    [animMode, animPhase]
+  );
+
+  const staticAnimState = useMemo<VectorAnimationParams>(
+    () => ({
+      mode: "IDLE",
+      phase: 0.25,
+      timeMs: 750,
+    }),
+    []
+  );
 
   const filteredElements = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -802,6 +1219,10 @@ export function LeonardoVectorStudio({
     (serverState.catalog[selectedDescriptor.assetKey] ?? []).find(
       (p) => p.variantId === activeStagedVariantId
     ) ?? proposalsForSelectedElement[0];
+  const baseV1Proposal =
+    (serverState.catalog[selectedDescriptor.assetKey] ?? []).find(
+      (p) => p.variantId === "v1_classic_mk1"
+    ) ?? proposalsForSelectedElement[0];
 
   return (
     <div
@@ -857,7 +1278,7 @@ export function LeonardoVectorStudio({
                 </Badge>
               </div>
               <div className="text-xs text-slate-400">
-                Évolution des graphismes vectoriels 2D • Bâtiments, Unités, Tuiles & Flore • Synchronisé avec RTS-MK1
+                Morphologies structurelles distinctes & Prévisualisation d&apos;animations 60 FPS • Synchronisé avec RTS-MK1
               </div>
             </div>
           </div>
@@ -1069,11 +1490,11 @@ export function LeonardoVectorStudio({
         </aside>
 
         {/* ----------------------------------------------------------------- */}
-        {/* CENTER COLUMN (6 cols): VARIANT GALLERY & LEONARDO GENERATOR      */}
+        {/* CENTER COLUMN (6 cols): VARIANT GALLERY & ANIMATION CONTROLS      */}
         {/* ----------------------------------------------------------------- */}
         <main className="col-span-6 flex flex-col overflow-y-auto bg-slate-950/40 p-4">
           {/* Selected Element Header & Preview Controls */}
-          <Card className="mb-4 border-slate-800 bg-slate-900/80 p-3.5">
+          <Card className="mb-3 border-slate-800 bg-slate-900/80 p-3.5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
@@ -1163,6 +1584,120 @@ export function LeonardoVectorStudio({
                 </div>
               </div>
             </div>
+
+            {/* ============================================================= */}
+            {/* LIVE ANIMATION PREVIEW CONTROLLER BAR                         */}
+            {/* ============================================================= */}
+            <div
+              data-testid="animation-preview-controls"
+              className="mt-3 rounded border border-sky-500/30 bg-slate-950/90 p-2.5"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-sky-400" />
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-sky-300">
+                    Prévisualisation des Animations Vectorielles
+                  </span>
+                  <Button
+                    size="sm"
+                    variant={isAnimPlaying ? "default" : "ghost"}
+                    data-testid="anim-play-pause-button"
+                    onClick={() => setIsAnimPlaying((p) => !p)}
+                  >
+                    {isAnimPlaying ? (
+                      <>
+                        <Pause className="h-3.5 w-3.5" />
+                        Lecture (60 FPS)
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-3.5 w-3.5" />
+                        En Pause
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                {/* Animation Mode Pills */}
+                <div className="flex flex-wrap items-center gap-1">
+                  {VECTOR_ANIMATION_MODES.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      data-testid={`anim-mode-${m.id}`}
+                      title={m.description}
+                      onClick={() => {
+                        setAnimMode(m.id);
+                        setIsAnimPlaying(true);
+                      }}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-bold transition-colors",
+                        animMode === m.id
+                          ? "border-sky-400 bg-sky-500/25 text-sky-200"
+                          : "border-slate-800 bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                      )}
+                    >
+                      {m.id === "IDLE" && <Sparkles className="h-3 w-3 text-sky-300" />}
+                      {m.id === "MOVE" && <Footprints className="h-3 w-3 text-emerald-300" />}
+                      {m.id === "ATTACK" && <Flame className="h-3 w-3 text-red-400" />}
+                      {m.id === "SPECIAL" && <Zap className="h-3 w-3 text-amber-300" />}
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Timeline Scrubber & Speed Selector */}
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800/80 pt-2 text-[11px]">
+                <div className="flex flex-1 items-center gap-2">
+                  <span className="font-semibold text-slate-400">
+                    Cycle ({Math.round(animPhase * 100)}%) :
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={Math.round(animPhase * 100)}
+                    data-testid="anim-phase-slider"
+                    onChange={(e) => {
+                      setIsAnimPlaying(false);
+                      setAnimPhase(Number(e.target.value) / 100);
+                    }}
+                    className="h-1.5 flex-1 cursor-pointer accent-sky-400"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="text-slate-400">Vitesse :</label>
+                  <select
+                    data-testid="anim-speed-select"
+                    value={animSpeed}
+                    onChange={(e) => setAnimSpeed(Number(e.target.value))}
+                    className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[11px] font-bold text-sky-200"
+                  >
+                    <option value={0.5}>0.5× (Ralenti)</option>
+                    <option value={1}>1.0× (Normal)</option>
+                    <option value={2}>2.0× (Rapide)</option>
+                  </select>
+
+                  <button
+                    type="button"
+                    data-testid="toggle-animate-all-cards"
+                    onClick={() => setAnimateAllCards((v) => !v)}
+                    className={cn(
+                      "rounded border px-2 py-0.5 font-bold transition-colors",
+                      animateAllCards
+                        ? "border-emerald-500/50 bg-emerald-500/20 text-emerald-200"
+                        : "border-slate-700 bg-slate-900 text-slate-400"
+                    )}
+                  >
+                    {animateAllCards
+                      ? "Cartes animées : TOUTES"
+                      : "Carte animée : SÉLECTION"}
+                  </button>
+                </div>
+              </div>
+            </div>
           </Card>
 
           {/* =============================================================== */}
@@ -1180,7 +1715,7 @@ export function LeonardoVectorStudio({
                 </span>
               </div>
               <span className="text-[11px] text-slate-400">
-                Génération illimitée (V5, V6, V7...) sans jamais écraser les versions précédentes
+                Génération illimitée (V5, V6, V7...) avec morphologies structurelles distinctes
               </span>
             </div>
 
@@ -1233,7 +1768,7 @@ export function LeonardoVectorStudio({
               {/* Style Archetype */}
               <div className="col-span-5">
                 <label className="mb-1 block text-[11px] font-semibold text-slate-400">
-                  Direction artistique (Archétype)
+                  Architecture & Morphologie (Archétype)
                 </label>
                 <select
                   data-testid="leonardo-style-select"
@@ -1260,7 +1795,7 @@ export function LeonardoVectorStudio({
                   data-testid="leonardo-directive-input"
                   value={commissionDirective}
                   onChange={(e) => setCommissionDirective(e.target.value)}
-                  placeholder="Directive libre pour Léonard (ex: blindage réactif lourd, dômes plasma, camouflage désert...)"
+                  placeholder="Directive libre pour Léonard (ex: marcheur quadrupode, anneau tokamak plasma, aile delta furtive...)"
                   className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:border-amber-400 focus:outline-none"
                 />
               </div>
@@ -1299,7 +1834,7 @@ export function LeonardoVectorStudio({
               <Layers className="h-4 w-4 text-sky-400" />
               <span className="text-xs font-extrabold uppercase tracking-wider text-slate-200">
                 Propositions de Léonard pour {selectedDescriptor.name} (
-                {proposalsForSelectedElement.length} versions)
+                {proposalsForSelectedElement.length} architectures distinctes)
               </span>
             </div>
             <button
@@ -1323,6 +1858,12 @@ export function LeonardoVectorStudio({
                 activeSavedVariantId === proposal.variantId;
               const isStagedSelected =
                 activeStagedVariantId === proposal.variantId;
+              const morphology = resolveVariantMorphology(proposal);
+              const morphologyLabel = MORPHOLOGY_LABELS[morphology];
+              const cardAnimState =
+                animateAllCards || isStagedSelected
+                  ? liveAnimState
+                  : staticAnimState;
 
               return (
                 <Card
@@ -1349,8 +1890,13 @@ export function LeonardoVectorStudio({
                             {proposal.title}
                           </span>
                         </div>
-                        <div className="mt-0.5 text-[11px] text-slate-400">
-                          {proposal.styleArchetype} • {proposal.author}
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <span
+                            data-testid={`morphology-badge-${proposal.variantId}`}
+                            className="rounded border border-sky-500/40 bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-bold text-sky-300"
+                          >
+                            {morphologyLabel}
+                          </span>
                         </div>
                       </div>
 
@@ -1378,7 +1924,11 @@ export function LeonardoVectorStudio({
                         proposal={proposal}
                         faction={previewFaction}
                         rotationStep={rotationStep}
+                        animState={cardAnimState}
                       />
+                      <div className="absolute left-2 top-2 rounded bg-slate-950/85 px-1.5 py-0.5 text-[10px] font-bold text-sky-300">
+                        {cardAnimState.mode}
+                      </div>
                       {(selectedDescriptor.category === "BUILDING" ||
                         selectedDescriptor.category === "UNIT") && (
                         <div className="absolute bottom-2 right-2 rounded border border-slate-700/80 bg-slate-950/90 p-1 shadow">
@@ -1404,7 +1954,7 @@ export function LeonardoVectorStudio({
                     {/* DNA Parameters Strip */}
                     <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-400">
                       <span className="rounded bg-slate-950 px-1.5 py-0.5 font-semibold text-slate-300">
-                        Profil {proposal.dna.silhouetteProfile}
+                        Morphologie {morphology}
                       </span>
                       <span className="rounded bg-slate-950 px-1.5 py-0.5 font-semibold text-slate-300">
                         Noyau {proposal.dna.energyCoreHue}
@@ -1478,17 +2028,48 @@ export function LeonardoVectorStudio({
         </main>
 
         {/* ----------------------------------------------------------------- */}
-        {/* RIGHT COLUMN (3 cols): LIVE IN-GAME DIORAMA & DNA INSPECTOR       */}
+        {/* RIGHT COLUMN (3 cols): ANIMATION COMPARATOR, DIORAMA & DNA        */}
         {/* ----------------------------------------------------------------- */}
         <aside className="col-span-3 flex flex-col overflow-y-auto border-l border-slate-800 bg-slate-950/90 p-3.5">
+          {/* Side-by-Side Live Animation Stage (V1 vs Selected) */}
+          {baseV1Proposal && activeStagedProposal && (
+            <div className="mb-3.5">
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-sky-300">
+                  Comparateur d&apos;Animation (V1 vs Choix)
+                </span>
+                <Badge className="border-sky-500/40 bg-sky-500/15 text-sky-300">
+                  {animMode} • 60 FPS
+                </Badge>
+              </div>
+              <LiveAnimationStageCanvas
+                descriptor={selectedDescriptor}
+                baseProposal={baseV1Proposal}
+                selectedProposal={activeStagedProposal}
+                faction={previewFaction}
+                rotationStep={rotationStep}
+                animState={liveAnimState}
+              />
+              <p className="mt-1 text-[11px] text-slate-400">
+                Compare en direct la silhouette et l&apos;animation{" "}
+                <strong className="text-sky-300">{animMode}</strong> entre{" "}
+                <strong className="text-slate-200">V1</strong> et{" "}
+                <strong className="text-amber-300">
+                  V{activeStagedProposal.versionNumber}
+                </strong>
+                .
+              </p>
+            </div>
+          )}
+
           {/* Live Diorama Preview */}
-          <div className="mb-4">
+          <div className="mb-3.5">
             <div className="mb-1.5 flex items-center justify-between">
               <span className="text-xs font-extrabold uppercase tracking-wider text-amber-300">
                 Aperçu In-Game (Mise en Situation)
               </span>
-              <Badge className="border-sky-500/40 bg-sky-500/15 text-sky-300">
-                Temps Réel
+              <Badge className="border-emerald-500/40 bg-emerald-500/15 text-emerald-300">
+                Terrain Animé
               </Badge>
             </div>
             <LiveDioramaCanvas
@@ -1497,27 +2078,35 @@ export function LeonardoVectorStudio({
               stagedSelections={stagedSelections}
               faction={previewFaction}
               rotationStep={rotationStep}
+              animState={liveAnimState}
             />
-            <p className="mt-1.5 text-[11px] text-slate-400">
-              Combine la variante sélectionnée pour{" "}
+            <p className="mt-1 text-[11px] text-slate-400">
+              Combine la variante choisie pour{" "}
               <strong className="text-slate-200">{selectedDescriptor.name}</strong>{" "}
-              avec vos tuiles de terrain et arbres actifs.
+              avec vos tuiles et arbres animés.
             </p>
           </div>
 
           {/* Active Variant DNA Inspector */}
           {activeStagedProposal && (
-            <Card className="mb-4 border-slate-800 bg-slate-900/70 p-3">
+            <Card className="mb-3.5 border-slate-800 bg-slate-900/70 p-3">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-xs font-extrabold uppercase tracking-wider text-slate-200">
-                  ADN Vectoriel (V{activeStagedProposal.versionNumber})
+                  Architecture (V{activeStagedProposal.versionNumber})
                 </span>
                 <Badge className="border-amber-500/40 bg-amber-500/15 text-amber-300">
-                  {activeStagedProposal.styleArchetype}
+                  {resolveVariantMorphology(activeStagedProposal)}
                 </Badge>
               </div>
 
               <div className="space-y-1.5 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Morphologie :</span>
+                  <span className="font-bold text-sky-300">
+                    {MORPHOLOGY_LABELS[resolveVariantMorphology(activeStagedProposal)]}
+                  </span>
+                </div>
+
                 <div className="flex items-center justify-between">
                   <span className="text-slate-400">Terrain / Feuillage :</span>
                   <div className="flex items-center gap-1.5">
@@ -1560,14 +2149,6 @@ export function LeonardoVectorStudio({
                     ×{activeStagedProposal.dna.hullWidthScale}×
                     {activeStagedProposal.dna.hullLengthScale} •{" "}
                     {activeStagedProposal.dna.rivetDensity}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Géométrie Sol / Canopée :</span>
-                  <span className="font-semibold text-slate-200">
-                    {activeStagedProposal.dna.terrainGeometryStyle} •{" "}
-                    {activeStagedProposal.dna.treeCanopyStyle}
                   </span>
                 </div>
               </div>

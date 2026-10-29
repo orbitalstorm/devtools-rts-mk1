@@ -2,6 +2,16 @@
 
 All notable changes to **DevTools RTS-MK1** (`https://devtools-rts-mk1.orbital8.cloud`) follow strict non-reusable `v1.x.y` versioning.
 
+## [v1.3.0] — 2026-10-29
+
+### Added & Changed
+- **Prévisualisation d'Animations 60 FPS & Morphologies Structurelles Distinctes dans l'Atelier Vectoriel (`/vector-lab`, `src/components/devtools/leonardo-vector-studio.tsx`, `src/renderer/generator/leonardo-morphologies.ts`, `src/shared/schemas/vector-variants.ts`) — ORB-23**:
+  - **Live 60 FPS Animation Preview (`data-testid="animation-preview-controls"`)**:
+    - Added Play/Pause toggle (`data-testid="anim-play-pause-button"`, active by default), 4 animation modes (`IDLE` Veille/Réacteur, `MOVE` Marche/Chenilles/Vol, `ATTACK` Tir/Laser/Flammes, `SPECIAL` Surcharge/Récolte), speed selector (`0.5×`, `1.0×`, `2.0×`), interactive timeline phase scrubber (`0%..100%`), and simultaneous multi-card animation toggle (`data-testid="toggle-animate-all-cards"`).
+    - Added the **Comparateur d'Animation (V1 vs Choix)** (`data-testid="live-animation-stage-canvas"`) in the right column comparing `V1` and the selected variant side-by-side in real time at 60 FPS.
+  - **Radically Distinct Structural Morphologies (`resolveVariantMorphology`)**:
+    - Replaced minor overlays with 6 complete architectural silhouettes (`CLASSIC_MK1`, `BASTION_CATAPHRACT`, `TOKAMAK_MAGLEV`, `STEALTH_DELTA_DRONE`, `MECH_CATAMARAN`, `ZIGGURAT_HEX_SWARM`) across all 41 buildings, units, terrain tiles, and trees.
+
 ## [v1.2.0] — 2026-10-29
 
 ### Added

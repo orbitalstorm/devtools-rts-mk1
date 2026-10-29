@@ -1146,7 +1146,7 @@ export function MapEditorStudio() {
                   DEVTOOLS RTS-MK1
                 </span>
                 <Badge className="border-emerald-500/50 bg-emerald-500/20 text-emerald-300">
-                  v1.2.0
+                  v1.3.0
                 </Badge>
               </div>
               <div className="text-xs text-slate-400">
