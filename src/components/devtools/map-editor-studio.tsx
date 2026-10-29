@@ -1,12 +1,14 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   CheckCircle2,
   Compass,
   Copy,
   Download,
   Eraser,
+  ExternalLink,
   Eye,
   Flag,
   FolderOpen,
@@ -16,6 +18,7 @@ import {
   Maximize2,
   Mountain,
   Paintbrush,
+  Palette,
   Pipette,
   Plus,
   Redo2,
@@ -97,6 +100,11 @@ import {
   FactionVectorEmblem,
   ProductionItemVectorIcon,
 } from "../hud/leonardo-icons";
+import {
+  setActiveVectorVariantConfig,
+  type VectorVariantsState,
+} from "../../shared/schemas/vector-variants";
+import { LeonardoVectorStudio } from "./leonardo-vector-studio";
 import { Badge, Button, Card, cn, DiscretizedProgressBar } from "../ui/primitives";
 
 const TERRAIN_PALETTE_ITEMS: ReadonlyArray<{
@@ -192,7 +200,7 @@ const SIZE_PRESET_CHOICES: ReadonlyArray<{
 export function MapEditorStudio() {
   // Active DevTools module view
   const [activePortalTab, setActivePortalTab] = useState<
-    "STUDIO" | "LIBRARY" | "RULES_AUDIT"
+    "STUDIO" | "LIBRARY" | "RULES_AUDIT" | "VECTOR_LAB"
   >("STUDIO");
 
   // Main CustomMapDocument state + Undo/Redo stacks
@@ -339,22 +347,51 @@ export function MapEditorStudio() {
     });
   }, [mapDoc]);
 
-  // Generate Procedural Sprite Atlas on mount
+  const rebuildSpriteAtlas = useCallback(() => {
+    generateProceduralSpriteAtlasAsync(() => {})
+      .then((built: ProceduralSpriteAtlas) => {
+        setAtlas((prev) => {
+          prev?.dispose();
+          return built;
+        });
+      })
+      .catch(() => {
+        // Fallback canvas shapes used if OffscreenCanvas unavailable
+      });
+  }, []);
+
+  // Load active Vector Variants then generate Procedural Sprite Atlas on mount
   useEffect(() => {
     let cancelled = false;
     let instance: ProceduralSpriteAtlas | null = null;
-    generateProceduralSpriteAtlasAsync(() => {})
-      .then((built: ProceduralSpriteAtlas) => {
+
+    const init = async () => {
+      try {
+        const res = await fetch("/api/vector-variants", { cache: "no-store" });
+        if (res.ok) {
+          const data = (await res.json()) as { state?: VectorVariantsState };
+          if (data.state) {
+            setActiveVectorVariantConfig(data.state);
+          }
+        }
+      } catch {
+        // Use built-in defaults if offline
+      }
+
+      try {
+        const built = await generateProceduralSpriteAtlasAsync(() => {});
         if (cancelled) {
           built.dispose();
           return;
         }
         instance = built;
         setAtlas(built);
-      })
-      .catch(() => {
+      } catch {
         // Fallback canvas shapes used if OffscreenCanvas unavailable
-      });
+      }
+    };
+
+    void init();
 
     return () => {
       cancelled = true;
@@ -1109,7 +1146,7 @@ export function MapEditorStudio() {
                   DEVTOOLS RTS-MK1
                 </span>
                 <Badge className="border-emerald-500/50 bg-emerald-500/20 text-emerald-300">
-                  v1.1.0
+                  v1.2.0
                 </Badge>
               </div>
               <div className="text-xs text-slate-400">
@@ -1165,6 +1202,29 @@ export function MapEditorStudio() {
               <CheckCircle2 className="h-4 w-4 text-emerald-400" />
               Audit & Règles ({auditReport.score}/100)
             </button>
+            <button
+              type="button"
+              data-testid="tab-vector-lab"
+              onClick={() => setActivePortalTab("VECTOR_LAB")}
+              className={cn(
+                "flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-bold transition-colors",
+                activePortalTab === "VECTOR_LAB"
+                  ? "bg-amber-500/25 text-amber-200 border border-amber-500/50"
+                  : "text-amber-300 hover:bg-slate-800 border border-amber-500/30 bg-amber-500/10"
+              )}
+            >
+              <Palette className="h-4 w-4 text-amber-400" />
+              Atelier Vectoriel (Léonard)
+            </button>
+            <Link
+              href="/vector-lab"
+              data-testid="link-vector-lab"
+              title="Ouvrir l'Atelier Vectoriel de Léonard (/vector-lab)"
+              className="flex items-center gap-1 rounded border border-sky-500/40 bg-sky-500/15 px-2.5 py-1.5 text-xs font-bold text-sky-200 hover:bg-sky-500/25"
+            >
+              <ExternalLink className="h-3.5 w-3.5 text-sky-400" />
+              /vector-lab
+            </Link>
           </div>
         </div>
 
@@ -1333,6 +1393,17 @@ export function MapEditorStudio() {
             Fermer
           </button>
         </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* TAB 4: LEONARDO VECTOR GRAPHICS EVOLUTION STUDIO                    */}
+      {/* =================================================================== */}
+      {activePortalTab === "VECTOR_LAB" && (
+        <LeonardoVectorStudio
+          embedded
+          onSwitchToMapEditor={() => setActivePortalTab("STUDIO")}
+          onVariantsUpdated={() => rebuildSpriteAtlas()}
+        />
       )}
 
       {/* =================================================================== */}

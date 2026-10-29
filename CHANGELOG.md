@@ -2,6 +2,16 @@
 
 All notable changes to **DevTools RTS-MK1** (`https://devtools-rts-mk1.orbital8.cloud`) follow strict non-reusable `v1.x.y` versioning.
 
+## [v1.2.0] — 2026-10-29
+
+### Added
+- **Atelier d'Évolution des Graphismes Vectoriels de Léonard (`/vector-lab`, `src/components/devtools/leonardo-vector-studio.tsx`) — ORB-23**:
+  - Added prominent navigation link (`/vector-lab`) and integrated module tab (`Atelier Vectoriel (Léonard)`) in the DevTools portal header.
+  - Added complete catalog of all **41 game elements** (`15 BUILDING`, `12 UNIT`, `10 TERRAIN`, `4 TREE`) with 4 built-in vector variants (`V1` to `V4`) per element (`164` initial proposals).
+  - Added interactive multi-variant comparison cards with live HTML5 Canvas vector rendering, 3/4 isometric HUD cameo previews, faction switcher (`GDI`, `NOD`, `ORDOS`), 16-angle turntable, and live 60 FPS in-game diorama preview.
+  - Added direct variant selection and persistence (`GET/POST /api/vector-variants`, SQLite table `vector_variants_state` + shared disk state `/app/data/vector-variants/state.json`) shared with the live game (`https://rts-mk1.orbital8.cloud`).
+  - Added unlimited on-demand variant generation (**"Redemander à Léonard de proposer de nouvelles versions"**) supporting single element, category, or all 41 elements (`V5`, `V6`, `V7`... without ever reusing or overwriting previous versions).
+
 ## [v1.0.0] — 2026-10-29
 
 ### Added

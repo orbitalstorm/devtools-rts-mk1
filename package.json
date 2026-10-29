@@ -1,6 +1,6 @@
 {
   "name": "devtools-rts-mk1",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "DevTools RTS-MK1 — Portail d'outils de développement et Éditeur de Cartes Tactiques (https://devtools-rts-mk1.orbital8.cloud)",
   "scripts": {

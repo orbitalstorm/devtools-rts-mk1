@@ -29,6 +29,8 @@ import type {
 } from "../shared/schemas/map-editor";
 import type { EditorCamera } from "./editor-camera";
 import type { ProceduralSpriteAtlas } from "./generator/atlas-generator";
+import { drawLeonardoTree } from "./generator/leonardo-vector-art";
+import { getActiveTerrainVariantByNumericKind } from "../shared/schemas/vector-variants";
 
 function drawSilverOreDeposit2x2(
   ctx: CanvasRenderingContext2D,
@@ -93,97 +95,10 @@ function drawBattlefieldTree(
   kind: TreeKind,
   cx: number,
   cy: number,
-  _s: number,
+  s: number,
   scale: number
 ): void {
-  ctx.save();
-  ctx.fillStyle = "rgba(8, 14, 10, 0.45)";
-  ctx.beginPath();
-  ctx.ellipse(cx + 3 * scale, cy + 4 * scale, 10 * scale, 6 * scale, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = kind === "TREE_CYPRESS" ? "#4a3728" : "#5c4028";
-  ctx.fillRect(cx - 2.2 * scale, cy - 2 * scale, 4.4 * scale, 8 * scale);
-
-  if (kind === "TREE_PINE") {
-    const tiers = [
-      { yOff: 3, w: 12, h: 11, color: "#14532d" },
-      { yOff: -2, w: 9.5, h: 10, color: "#166534" },
-      { yOff: -7, w: 6.5, h: 8.5, color: "#22c55e" },
-    ];
-    for (const tier of tiers) {
-      ctx.beginPath();
-      ctx.moveTo(cx, cy + (tier.yOff - tier.h) * scale);
-      ctx.lineTo(cx + tier.w * scale, cy + tier.yOff * scale);
-      ctx.lineTo(cx - tier.w * scale, cy + tier.yOff * scale);
-      ctx.closePath();
-      ctx.fillStyle = tier.color;
-      ctx.fill();
-      ctx.strokeStyle = "#052e16";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
-  } else if (kind === "TREE_PALM") {
-    const crownX = cx;
-    const crownY = cy - 4 * scale;
-    ctx.strokeStyle = "#15803d";
-    ctx.lineWidth = 2.6 * scale;
-    ctx.lineCap = "round";
-    for (let i = 0; i < 6; i++) {
-      const ang = (i / 6) * Math.PI * 2 + 0.3;
-      const tipX = crownX + Math.cos(ang) * 11.5 * scale;
-      const tipY = crownY + Math.sin(ang) * 9.5 * scale;
-      ctx.beginPath();
-      ctx.moveTo(crownX, crownY);
-      ctx.quadraticCurveTo(
-        crownX + Math.cos(ang) * 6 * scale,
-        crownY + Math.sin(ang) * 4 * scale - 2 * scale,
-        tipX,
-        tipY
-      );
-      ctx.stroke();
-    }
-    ctx.beginPath();
-    ctx.arc(crownX, crownY, 3 * scale, 0, Math.PI * 2);
-    ctx.fillStyle = "#4ade80";
-    ctx.fill();
-  } else if (kind === "TREE_CYPRESS") {
-    const tiers: ReadonlyArray<[number, number, number, string]> = [
-      [0, -1, 8.5, "#1e3f2b"],
-      [-4, 1, 6.2, "#285438"],
-      [4, 1, 6.2, "#285438"],
-      [0, -6.5, 6.5, "#346b47"],
-      [0, -10.5, 4.2, "#4ade80"],
-    ];
-    for (const [lx, ly, lr, col] of tiers) {
-      ctx.beginPath();
-      ctx.ellipse(
-        cx + lx * scale,
-        cy + ly * scale,
-        lr * scale,
-        lr * 1.15 * scale,
-        0,
-        0,
-        Math.PI * 2
-      );
-      ctx.fillStyle = col;
-      ctx.fill();
-    }
-  } else {
-    const lobes: ReadonlyArray<[number, number, number, string]> = [
-      [-5, 1, 7.5, "#14532d"],
-      [5, 1, 7.5, "#166534"],
-      [0, -4, 8.5, "#15803d"],
-      [-2.5, -2, 5.5, "#22c55e"],
-    ];
-    for (const [lx, ly, lr, col] of lobes) {
-      ctx.beginPath();
-      ctx.arc(cx + lx * scale, cy + ly * scale, lr * scale, 0, Math.PI * 2);
-      ctx.fillStyle = col;
-      ctx.fill();
-    }
-  }
-  ctx.restore();
+  drawLeonardoTree(ctx, kind, cx - s * 0.5, cy - s * 0.5, s, scale, 0);
 }
 
 export interface EditorOverlayToggles {
@@ -316,7 +231,18 @@ function getTerrainVisualPriority(kind: number): number {
 
 function getStratumPalette(kind: number): StratumPalette {
   const norm = normalizeBaseTerrainKind(kind);
-  return STRATUM_PALETTES[norm] ?? STRATUM_PALETTES[TERRAIN_KIND.DIRT]!;
+  const base = STRATUM_PALETTES[norm] ?? STRATUM_PALETTES[TERRAIN_KIND.DIRT]!;
+  const activeVariant = getActiveTerrainVariantByNumericKind(norm);
+  if (activeVariant.variantId === "v1_classic_mk1") {
+    return base;
+  }
+  return {
+    fill: activeVariant.dna.terrainFillHex,
+    lipShadow: activeVariant.dna.terrainLipShadowHex,
+    lipHighlight: activeVariant.dna.terrainLipHighlightHex,
+    cornerRadiusRatio: base.cornerRadiusRatio,
+    thicknessPx: base.thicknessPx,
+  };
 }
 
 function hashTileCoord(tx: number, ty: number, salt: number): number {

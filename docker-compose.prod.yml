@@ -3,13 +3,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: devtools-rts-mk1-web:v1.0.0
+    image: devtools-rts-mk1-web:v1.2.0
     container_name: devtools-rts-mk1-web
     restart: unless-stopped
     user: "node"
     environment:
       - NODE_ENV=production
-      - APP_VERSION=1.0.0
+      - APP_VERSION=1.2.0
       - PORT=4310
       - WEB_PORT=4310
       - PROJECT_NAME=DEVTOOLS-RTS-MK1
